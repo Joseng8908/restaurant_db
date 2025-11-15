@@ -118,7 +118,8 @@ func (r *BufferRepoImpl) UpdateCommitted(ctx context.Context, logIDs []int64) er
 	for i := range logIDs {
 		placeholders[i] = "?"
 	}
-
+	// 여기서 에러는 아직 db가 만들어지지 않아서 생기는 오류, 테스트 코드에서 db를 만드니까 상관 없음
+	// 추후 db.go 를 추가해 db생성 코드를 짤 예정
 	query := `
 	UPDATE Buffer_Log
 	SET is_committed = 1

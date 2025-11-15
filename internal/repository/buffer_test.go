@@ -14,6 +14,9 @@ import (
 	"restaurant_db/internal/repository"
 )
 
+// Buffer_Log 에러는 아직 db가 만들어지지 않아서 생기는 오류, 테스트 코드에서 db를 만드니까 상관 없음
+// 추후 db.go 를 추가해 db생성 코드를 짤 예정
+
 // setupTestDB는 TDD를 위해 테스트용 SQLite 인메모리 DB를 설정하고 초기화합니다.
 func setupTestDB(t *testing.T) *sql.DB {
 	// 1. SQLite 인메모리 DB 연결 (테스트 후 자동 삭제됨)
