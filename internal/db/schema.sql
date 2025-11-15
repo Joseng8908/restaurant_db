@@ -131,3 +131,12 @@ CREATE TABLE Buffer_Log(
     log_updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
     is_committed INTEGER NOT NULL DEFAULT 0 -- splite에서는 boolean을 못쓴다네요..?
 );
+
+-- User: 신뢰도 점수 기반 검색 및 순위화를 위한 인덱스
+CREATE INDEX idx_user_reliability_score ON User (reliability_score DESC);
+
+-- Restaurant: 지역 및 카테고리 기반 검색을 위한 복합 인덱스
+CREATE INDEX idx_restaurant_location_category ON Restaurant (Location_Ref_ID, Category_Ref_ID);
+
+-- Buffer_Log: Worker가 미처리 로그를 효율적으로 조회하기 위한 인덱스
+CREATE INDEX idx_buffer_pending ON Buffer_Log (is_committed, log_updated_at);
