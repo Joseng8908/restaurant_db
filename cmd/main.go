@@ -169,10 +169,8 @@ func simulateReadScenario(ctx context.Context, s service.RestaurantService) {
 	avgHitTime := totalCacheHitTime / time.Duration(TestReadCount)
 	avgMissTime := totalCacheMissTime / time.Duration(TestReadCount)
 
-	// 최종 출력 (요청하신 두 줄)
+	// 최종 출력
 	fmt.Println("--- 읽기 성능 결과 (평균) ---")
 	fmt.Printf("[Read] ✅ CACHE HIT 평균 시간 (Restaurant 1): %s\n", avgHitTime)
 	fmt.Printf("[Read] ❌ CACHE MISS 평균 시간 (Restaurant 99): %s\n", avgMissTime)
 }
-
-// 기존 simulateRead 함수는 삭제되었습니다.
