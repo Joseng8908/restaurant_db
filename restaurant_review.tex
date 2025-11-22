@@ -1,0 +1,448 @@
+\documentclass[11pt, a4paper]{article}
+
+% --- Preamble Protocol ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{enumitem} 
+\setlist[itemize]{label=\textbullet}
+\usepackage{hyperref} 
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=cyan,
+}
+% --- Preamble Protocol End ---
+
+\title{Database Design for Performance and Reliability Optimization in Restaurant Review Systems}
+\author{Student Id: 22101213, Name: Sang-Yun Jo\\Seoul National University of Science and Technology, Department of Computer Science} % Replace with actual name and student ID
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report proposes a database system design that addresses two conflicting real-world challenges in high-traffic review platforms: **Disk I/O Bottlenecks and High Contention on Core Relations** leading to unacceptable latency, and **Data Quality Issues** resulting from unreliable reviews.
+We introduce an innovative architecture combining an **Application-Level Asynchronous Buffer/Journaling Model** and a **Multi-Tier Caching Strategy** with a **User Reliability Score-based Weighting** mechanism. 
+\end{abstract}
+
+
+\section{Introduction}
+\label{sec:intro}
+
+\subsection{Problem Definition and Motivation}
+
+\subsection{Performance Issue: Latency due to Disk I/O Bottlenecks}
+% Key Problem: High latency and resource contention caused by synchronous access to persistent storage.
+
+Accessing core database relations, such as the **User** or **Restaurant** tables, involves significant processing and time due to the reliance on **physical persistent storage (Disk I/O)**. When a system experiences a high volume of concurrent Read and Write requests, this synchronous Disk I/O becomes the primary **bottleneck**, leading to resource contention and high user latency.
+
+To address this critical performance issue, we propose implementing **Application-Level Buffer and Cache mechanisms**:
+\begin{itemize}
+    \item \textbf{Buffer/Journaling System (Async Write):} By utilizing a **Buffer Log** table, the Database Management System (DBMS) can transform high-frequency synchronous Writes into **low-frequency, large-batch asynchronous operations**. This minimizes the impact of Disk I/O latency on the user's response time.
+    \item \textbf{Caching Mechanism (Read Optimization):} By maintaining a **Cache Metadata** layer (In-Memory), the system avoids accessing the slower core relations for frequently requested data. Data retrieval occurs primarily from the Cache, accessing the persistent storage only upon a **Cache Miss**.
+\end{itemize}
+These mechanisms ensure that the user experience is decoupled from the inherent slowness of disk access, leading to ultra-low latency for common operations.
+
+\subsection{Data Quality Issue: Unreliable Reviews}
+% Key Problem: Unreliable reviews due to anonymity and lack of user history validation.
+
+The vast number of reviews for a restaurant often contain inherent noise, rendering them less than 100\% reliable. This unreliability based on primarily two real-world phenomena:
+\begin{itemize}
+    \item \textbf{User Rating Bias:} Users whose standards are consistently too low or too high tend to submit reviews that are perpetually skewed towards extreme scores, distorting the true average rating.
+    \item \textbf{Malicious Intent:} The existence of malicious actors, such as competitors or incentivized reviewers, who deliberately submit biased reviews to gain improper financial or competitive advantage.
+\end{itemize}
+To mitigate these risks and ensure the overall objectivity of the rating system, we assert that a **Weighted Reliability Score** is necessary. This score serves to appropriately diminish the influence of demonstrably unreliable or highly skewed reviews,
+thereby ensuring the final displayed rating is a more accurate representation of the restaurant's quality.
+
+\subsection{Originality and Design Goals}
+
+The primary goal of this project is to develop a database service whose architecture resolves the inherent conflict between **real-time performance** and **data quality** in review systems.
+Our design is focused on an innovative philosophy that separates the data path based on its intended purpose (speed vs. integrity), leading to two pillars of originality:
+
+\begin{itemize}
+    \item \textbf{Integration of Quality Control in Schema Design:} We move beyond traditional rating systems by embedding a **User Reliability Score** directly into the core schema. The design goal is to ensure that the final rating displayed to the user is not just a simple average, but a **weighted, quality-controlled metric** that actively mitigates rating bias and malicious attempts.
+    \item \textbf{Asynchronous Dual-Path Architecture (Performance):} To eliminate the Disk I/O bottleneck, we adopt an **Asynchronous Dual-Path Model**. The goal is to maximize user experience by providing ultra-low latency for both Read and Write operations:
+    \begin{enumerate}[label=(\alph*)]
+        \item Writes are handled through **Journaling (Buffer Log)** to ensure fast user response (Latency).
+        \item Reads are prioritized through a **Multi-Tier Caching Strategy** (Cache Metadata) to ensure speed and high throughput.
+    \end{enumerate}
+\end{itemize}
+This approach where data quality directly informs the cached speed layer is the critical insight that distinguishes our design from conventional database models.
+
+\subsection{Technology Stack}
+% Briefly list the core technologies used for implementation and simulation.
+
+The system implementation and performance validation were conducted using the following core technologies:
+
+\begin{itemize}
+    \item \textbf{Programming Language:} Go (Golang), chosen for its excellent native support for **concurrency (Goroutines)** and its efficiency in high-performance applications.
+    \item \textbf{Database System:} SQLite (in-memory). While SQLite offers rapid prototyping and seamless integration for simulating data layers (Primary, Buffer, Cache) within the Go environment,
+		its nature as an **in-memory database** inherently fails to replicate true **Disk I/O Latency**. This limitation necessitated the temporary use of a **predefined I/O delay** (10ms) to ensure the quantitative validation of the caching benefits against a realistic slow path.
+    \item \textbf{Development Methodology:} Test-Driven Development (TDD), applied to ensure the logical correctness and robustness of the core functionalities (e.g., buffering and caching logic).
+    \item \textbf{Performance Simulation:} Native Go time utilities (`time.Sleep`) were used to simulate realistic **Disk I/O Latency** for the slow path.
+\end{itemize}
+
+\section{System Architecture and Schema Design}
+\label{sec:design}
+
+\subsection{Entity-Relationship (E-R) Diagram}
+% Describe and place the E-R Diagram image here.
+\begin{figure}[htbp]
+  \centering
+  % 이미지 폭을 텍스트 폭의 90%로 설정 (가장 안전한 방법)
+  \includegraphics[width=0.9\textwidth]{restaurant_erd_1.png} 
+  
+  \caption{Project Entity-Relationship Diagram}
+  \label{fig:er_diagram}
+\end{figure}
+
+\subsection{Relational Schema and Data Integrity}
+% Detail the schema structure, including Primary Keys (PK), Foreign Keys (FK), and constraints.
+% This section is structured to highlight the separation of concerns: Integrity vs. Performance.
+
+The Relational Schema can be divided into three parts: the Primary Data Part, the Performance Data Part, and the Indexing Strategy.
+
+\subsubsection{Primary Data Part (Integrity Tier)}
+\label{sec:primary_data}
+
+These tables serve as the **Source of Truth** for the entire system, saving the core, persistent records where **ACID properties** are strictly enforced. The design here focuses on referential integrity (via Foreign Keys) and domain integrity (via NOT NULL and UNIQUE constraints).
+
+\begin{itemize}
+	\item \textbf{User Table:} This table is central to our **Data Quality Objective**. It includes standard fields (PK: \texttt{user\_id}, \texttt{username}) but crucially integrates integrity meta-data:
+	    \begin{enumerate}
+	        \item \textbf{\texttt{reliability\_score} (REAL, Default 0.5):} A critical custom attribute used as a weighting factor in calculating final restaurant ratings, actively enforcing the integrity of the rating system against biased users.
+	        \item \textbf{\texttt{review\_count} / \texttt{bias\_count}:} These fields track user activity and the submission of extreme ratings (1 or 5), which are used by the asynchronous Worker to update the \texttt{reliability\_score}.
+	    \end{enumerate}
+
+	\item \textbf{Restaurant Table:} This core entity ensures **referential integrity** through mandatory Foreign Keys ($\text{FKs}$) linking to the \texttt{Category} and \texttt{Location} tables. The $\text{owner}$ field provides an audit trail by connecting the record to a valid \texttt{User} ID.
+
+	\item \textbf{Review Table:} This records the raw user feedback. Beyond the mandatory $\text{FKs}$ to \texttt{Restaurant} and \texttt{User}, the table includes the \textbf{\texttt{reliability\_weight}} field. This attribute stores the User's score \textit{at the time of review insertion}, which is essential for preserving the **historical integrity** of the weighted review calculation.
+\end{itemize}
+
+\subsubsection{Performance Data Part (Optimization Tier)}
+\label{sec:performance_data}
+
+These tables constitute the **Optimization Tier**, designed to manage the high volume of concurrent Read and Write requests by separating the I/O path from the slower Primary Data Part. This tier is critical for achieving the project's **low-latency goal** by implementing the core concept of the Asynchronous Dual-Path architecture.
+
+\begin{itemize}
+	\item \textbf{Buffer\_Log Table (Asynchronous Journaling):} This table serves as the primary **Write Path**. Upon receiving a Write request (e.g., a new review), the data is first stored here as a raw command log. The system returns an immediate success response to the user, effectively bypassing synchronous Disk I/O. The collected logs are then processed by the **Checkpoint Worker** (a background Goroutine) in large batches when the log volume exceeds a predefined limit. This mechanism transforms high-frequency synchronous Writes into low-frequency asynchronous persistence, drastically reducing user-facing latency.
+
+	\item \textbf{Cache\_Metadata Table (Multi-Tier Caching):} This table serves as the primary **Read Path** and implements a **Cache-Aside pattern**. It stores pre-calculated summary data, most notably the **weighted\_rating** derived from the User Reliability Score. All reading requests are directed here first. Only in the event of a Cache Miss does the system access the underlying Primary Data Part. The Cache Metadata is designed to minimize read latency, ensuring ultra-fast retrieval of the most frequently requested information.
+\end{itemize}
+
+\subsubsection{Indexing Strategy}
+
+The indexing strategy is intentionally sparse, focusing exclusively on two goals: optimizing common read patterns and, more critically, supporting the low-latency and asynchronous operations central to this architecture.
+
+\begin{itemize}
+    \item \textbf{Asynchronous Worker Index ($\text{idx\_buffer\_pending}$):} This composite index on Buffer\_Log (is\_committed, log\_updated\_at) is the \textbf{most critical index} for the system's performance. It enables the Checkpoint Worker to efficiently query and retrieve all unprocessed logs ($\text{is\_committed}=0$) in the correct FIFO order without a full table scan. This index ensures high batch throughput and prevents the Worker itself from becoming a latency bottleneck.
+    
+    \item \textbf{User Quality Ranking ($\text{idx\_user\_reliability\_score}$):} This index on User (reliability\_score DESC) directly supports the Data Quality objective. It allows the system to quickly generate leaderboards or filter queries based on user reliability, making the weighted scoring feature practically usable in the application layer.
+
+    \item \textbf{Composite Restaurant Search ($\text{idx\_restaurant\_loc\_cat}$):} This composite index on Restaurant (Location\_Ref\_ID, Category\_Ref\_ID) optimizes the slower Primary Data read path. It ensures that even in the event of a cache miss, essential searches remain efficient by avoiding full table scans on the core $\text{Restaurant}$ entity.
+\end{itemize}
+
+
+\subsection{Design Decision I: Modeling Review Reliability (Data Quality)}
+\label{sec:design_reliability}
+
+To mitigate the effects of extreme user bias and malicious reviewing (Problem 2), we moved beyond the conventional simple average and implemented a sophisticated **Weighted Reliability Model**. The core design decision was to elevate user trust from an external concern to an **intrinsic metric** within the database schema.
+
+\begin{itemize}
+    \item \textbf{User Reliability Score (The Weighting Factor):} We introduced the $\text{reliability\_score}$ column in the \texttt{User} table. This score, ranging from $0.0$ to $1.0$, acts as the **weighting factor** applied to every review submitted by that user. The score is dynamically calculated based on several factors, including:
+        \begin{enumerate}
+            \item User's historical activity ($\text{review\_count}$).
+            \item Consistency and deviation from the mean rating.
+            \item Frequency of extreme scores ($\text{bias\_count}$).
+        \end{enumerate}
+
+    \item \textbf{Asynchronous Analysis and Update Path:} The calculation of the $\text{reliability\_score}$ is a computationally complex task. Therefore, we deliberately decoupled this process from the user's immediate review submission using an **Asynchronous Analysis Path**:
+        \begin{enumerate}[label=(\alph*)]
+            \item New reviews trigger entries in the $\text{Review\_Analysis\_Log}$ table.
+            \item The **Checkpoint Worker** processes these logs in the background, updating the $\text{User}$ table's $\text{reliability\_score}$.
+        \end{enumerate}
+        This ensures the intensive analysis does not contribute to the user-facing latency.
+
+    \item \textbf{Cache Integration for Fast Reads:} The true impact of the $\text{reliability\_score}$ is realized in the read path. The final $\text{weighted\_rating}$ is pre-calculated using the user's weight and stored directly in the \texttt{Cache\_Metadata} table. By **pre-calculating this complex, quality-controlled metric**, we ensure that all read requests retrieve a reliable score at the ultra-low latency speed of the Cache Tier.
+\end{itemize}
+
+
+\subsection{Design Decision II: Asynchronous Dual-Path for Performance}
+\label{sec:design_performance}
+
+To overcome the inherent I/O latency bottleneck and address Problem 1 (High Latency), we implemented an **Asynchronous Dual-Path Architecture** that strategically decouples synchronous writes and reads from the underlying disk operations.
+
+\begin{itemize}
+	\item \textbf{1. Asynchronous Write Path (Journaling via Buffer\_Log):}
+	This path is designed to ensure **ultra-low write latency** for users submitting reviews. We utilize **Application-Level Journaling** to bypass synchronous Disk I/O during peak load:
+	\begin{enumerate}
+		\item \textbf{Immediate Commit:} All new review requests are immediately stored in the \texttt{Buffer\_Log} table, and the system returns a success response to the user. This critical step effectively **decouples the user's waiting time** from the slow disk write process.
+		\item \textbf{Batch Persistence:} The accumulated logs are then processed by the **Checkpoint Worker** (a dedicated background Goroutine). The Worker performs periodic **Batch Writes** to the \texttt{Primary Data Part} when the log count exceeds a set limit. This maximizes write throughput and minimizes the number of expensive disk I/O operations.
+	\end{enumerate}
+
+	\item \textbf{2. Cache-Aside Read Path (Cache\_Metadata Utilization):}
+	This path is designed to ensure **ultra-low read latency** for viewing restaurant ratings. We implement the **Cache-Aside Pattern** using the \texttt{Cache\_Metadata} table:
+	\begin{enumerate}
+		\item \textbf{Cache Hit Prioritization:} Reading requests are first directed to the \texttt{Cache\_Metadata} table (Tier 1). Since this tier contains the pre-calculated $\text{weighted\_rating}$ and resides in a fast memory location,
+			a cache hit results in near-instantaneous data retrieval.
+		\item \textbf{Cache Miss Fallback:} Only upon a cache miss does the system fall back to accessing the slower \texttt{Primary Data Part} (Tier 2).
+		\item \textbf{Proactive Cache Update:} The Cache is updated not by user reads, but proactively by the **Checkpoint Worker** after new weighted scores are calculated, ensuring the fast tier always contains the latest available integrity-checked data.
+	\end{enumerate}
+\end{itemize})
+
+
+\section{Implementation and Quantitative Validation}
+\label{sec:validation}
+\subsection{Performance Measurement Methodology}
+% Explain the justification for simulating the 10ms Disk I/O latency to establish a baseline for comparison.
+We test our db using mockdata. We set the 10ms Disk I/O latentcy to establish a baseline for comparison. 
+We set the 1000 write request to test buffering system.
+We set the 100 batch size in our buffer system(the limit of buffer).
+We set the 100 read request to test cache system.
+
+\subsection{Quantitative Analysis Results}
+% Present the measured performance data.
+\begin{table}[htbp]
+	\centering
+		\caption{Key Performance Scenario Measurement Results}
+			\begin{tabular}{lcc}
+			\toprule
+				\textbf{Scenario} & \textbf{Average Time} & \textbf{Performance Gain} \\
+			\midrule
+				Cache Hit (RAM Access) & $81.922 \mu\text{s}$ & $\mathbf{134.4\text{x}}$ faster (vs Cache Miss) \\
+				Cache Miss (DB Access Baseline) & $11.016 \text{ms}$ & Baseline \\
+			\midrule
+			Buffered Write (User Latency, Per Log) & $10.15 \mu\text{s}$ & $\mathbf{\approx 985\text{x}}$ faster (vs $10 \text{ms}$ Direct Write) \\
+			Direct Write (System Throughput, 1000 Logs) & $5.435 \text{ms}$ & N/A (Throughput Comparison) \\
+			\bottomrule
+	\end{tabular}
+\label{tab:performance_results}
+\end{table}
+
+\subsubsection{Analysis of Results}
+
+\begin{itemize}
+	\item \textbf{Read Path Validation (Speed):} The test results decisively validate the Cache-Aside Read Path. The average time for a $\mathbf{Cache~Hit}$ was $\mathbf{81.922~\mu\text{s}}$. When compared to the $\mathbf{Cache~Miss}$ baseline of $\mathbf{11.016 \text{ms}}$, this represents an outstanding $\mathbf{134.4\text{x}}$ speed improvement. This confirms that the separation of the read path into fast (Tier 1) and slow (Tier 2) layers successfully delivers ultra-low latency reads.
+
+	\item \textbf{Write Path Validation (User Latency):} The **Asynchronous Write Path** proved successful in achieving its primary goal: minimal user latency. The time required for a user to successfully submit a review (inserting one log into the \texttt{Buffer\_Log}) was measured at $\mathbf{10.15 \mu\text{s}}$. This is approximately $\mathbf{985\text{x}}$ faster than the simulated direct disk write baseline of $10 \text{ms}$, demonstrating that the **decoupling of user response from physical I/O** is highly effective.
+
+	\item \textbf{Throughput and Trade-off Observation:} The time taken to insert $\mathbf{1000}$ logs into the buffer was $\mathbf{10.151 \text{ms}}$ in total. This result is **slower** than the $\mathbf{5.435 \text{ms}}$ required for $\mathbf{1000}$ direct, non-delayed updates, indicating that the buffer system introduces an overhead compared to the system's raw memory-write throughput (e.g., $\mathbf{10.15 \mu\text{s}}$ per log vs. $\mathbf{5.43 \mu\text{s}}$ per log). However, for the end-user, this marginal internal slowness is irrelevant: the **$\mathbf{10.15 \mu\text{s}}$ latency is the key performance metric**, as it successfully masks the mandatory high-latency $\mathbf{10 \text{ms}}$ disk I/O. Therefore, the **Buffer System is strategically slower internally but fundamentally faster for the end-user.**
+\end{itemize}
+
+\section{Design Tradeoffs and Discussion}
+
+\label{sec:tradeoffs}
+
+\subsection{Tradeoff I: Reliability vs. Write Complexity}
+The incorporation of the **User Reliability Score-based Weighting** mechanism fundamentally represents a trade-off between **Data Quality (Reliability)** and **Write Path Complexity (Computational Overhead)**.
+\begin{itemize}
+    \item \textbf{Reliability Gain:} The primary goal is to enhance the integrity of the aggregated restaurant score by mitigating the influence of low-reliability, potentially malicious, or spam reviews. This is a critical gain for user trust and data validity.
+    \item \textbf{Overhead Cost:} Implementing this feature requires the write path to fetch the user's current reliability score from the dedicated $\texttt{User\_Reliability}$ table during the review submission process. Furthermore, the Checkpoint Worker must execute a more complex, weighted aggregation calculation instead of a simple arithmetic mean. This introduces additional database I/O and computational load, increasing the overall complexity and internal latency of the asynchronous write process. The chosen trade-off prioritizes high data quality, accepting the minor increase in internal system overhead.
+\end{itemize}
+
+\subsection{Tradeoff II: Performance vs. Data Freshness}
+This trade-off is the central dilemma of the **Asynchronous Write Path**. We deliberately exchanged **Data Freshness** for **User Latency Performance**.
+\begin{itemize}
+    \item \textbf{Performance Gain (Latency):} By writing only to the $\texttt{Buffer\_Log}$ in RAM, we achieved an exceptional user response time of $\mathbf{10.15 \mu\text{s}}$, decoupling the user from the $\mathbf{10 \text{ms}}$ disk latency. This successfully maximizes performance from the user's perspective.
+    \item \textbf{Data Freshness Cost (Inconsistency):} The cost of this performance gain is temporary data inconsistency. The final aggregated score in the main $\texttt{Restaurant\_Score}$ table is **stale** until the Checkpoint Worker runs and commits the batch of logs. This means a newly submitted review is not immediately reflected in the public-facing score. The system design accepts this brief delay, ensuring that data eventually becomes consistent (Eventual Consistency), but requires careful tuning of the Checkpoint Worker's batch size and execution interval (timeout) to minimize the staleness window.
+\end{itemize}
+
+\subsection{Checkpoint Worker Batch Size Discussion}
+The choice of the Checkpoint Worker's batch size (set at $\mathbf{100}$ in the tests) is a crucial tuning parameter that balances **System Throughput** against **Lock Contention/Data Freshness**.
+
+\begin{itemize}
+    \item \textbf{Larger Batch Size (e.g., 1000 logs):} A larger batch size maximizes aggregate throughput because the fixed overhead associated with starting the Checkpoint Worker, acquiring the table lock, and committing the transaction is amortized over more logs. However, it requires the main $\texttt{Restaurant\_Score}$ table to be locked for a longer duration, significantly increasing the risk of **write contention** if multiple workers or processes attempt to update the same table simultaneously. More importantly, a larger batch increases the **window of data staleness (Tradeoff II)**.
+    \item \textbf{Smaller Batch Size (e.g., 100 logs):} A smaller batch size minimizes the time the main $\texttt{Restaurant\_Score}$ table is locked, thereby reducing contention and improving data freshness. Conversely, it increases the frequency of commits, leading to a higher overall cumulative overhead from repeated lock acquisitions and transaction processing, resulting in lower system throughput.
+    \item \textbf{Conclusion:} The chosen size of $\mathbf{100}$ represents a compromise, aiming for frequent commits to maintain acceptable data freshness while keeping the transaction batch large enough to handle typical concurrent review traffic efficiently.
+
+
+\end{itemize}
+
+\section{Design Limitations and Future Work}
+\label{sec:limitations}
+
+\begin{itemize}
+    \item \textbf{Real-World Environment Testing (Heterogeneous Storage):} The current performance validation assumes all relations ($\texttt{Cache}$, $\texttt{Buffer}$, and main relations) reside in the same memory space due to the simplification of the mock environment. In a real-world system, only performance-critical tables ($\texttt{Cache}$, $\texttt{Buffer\_Log}$) should reside in fast memory (RAM/SSD). Future work must involve testing the system where the main relations ($\texttt{Restaurant\_Score}$, $\texttt{User\_Reliability}$) are explicitly mapped to slower, persistent storage (HDD/SSD). This will provide a more accurate measurement of the disk I/O masking effectiveness and expose potential I/O bottlenecks during the Checkpoint Worker's commit phase.
+
+    \item \textbf{Comparative Study with Industry Solutions (Redis):} The project was developed without a comprehensive understanding of how established industry solutions like Redis manage similar performance/consistency tradeoffs. Future work will involve a detailed study and implementation comparison against Redis, particularly focusing on its persistence mechanisms (AOF, RDB) and data structures. This will help quantify the unique advantages and disadvantages of our custom application-level buffering and reveal alternative approaches to solving the dual problem of high performance and eventual consistency.
+
+    \item \textbf{Extending System Logic and Transactional Integrity:} Due to project scope and deadline constraints, the current implementation focuses solely on the performance-critical read/write paths, neglecting comprehensive application logic. Future work requires fully designing and implementing the system to handle advanced database problems, including maintaining **ACID properties**, resolving **concurrency issues** (e.g., race conditions during Checkpoint Worker execution), and addressing **competitive access/locking challenges** on the main tables.
+\end{itemize}
+
+\section{Conclusion}
+\label{sec:conclusion}
+This project successfully designed and validated a database architecture aimed at resolving the dual challenges of high latency and data quality in a high-traffic restaurant review system. We introduced an innovative three-pronged approach: the **Cache-Aside Read Path**, the **Asynchronous Write Path (Buffering)**, and the **Reliability Score-based Weighting System**.
+
+The quantitative validation strongly confirmed the success of the system's dual objectives. Firstly, the **Cache-Aside Read Path** achieved an outstanding $\mathbf{134.4\text{x}}$ speed improvement for cache hits, establishing ultra-low latency reads. Secondly, the **Asynchronous Write Path** delivered its primary goal of reducing user-facing latency to $\mathbf{10.15 \mu\text{s}}$, effectively masking the significant $\mathbf{10 \text{ms}}$ disk I/O bottleneck.
+
+Crucially, the performance analysis exposed a vital design trade-off: while the **Buffering System failed to achieve internal throughput efficiency** (demonstrating a deficit against the system's raw memory-write capacity), this internal slowness was a necessary and deliberate **strategic sacrifice** to ensure superior end-user experience. This validates the design philosophy of prioritizing user latency over internal raw throughput.
+
+Furthermore, the integration of the Reliability Score mechanism adds a critical layer of data integrity, addressing the persistent issue of data quality in user-contributed content.
+
+In conclusion, the proposed architecture provides a successful template for building high-performance, eventually consistent systems. We recognize the importance of industry standards, such as Redis, and plan to utilize them in future comparative work to further optimize and harden our custom solution against real-world transactional complexities.% Summarize the success in solving the dual problem (performance and reliability) and the significance of the innovative architecture.
+
+\subsection*{Appendix}
+\addcontentsline{toc}{section}{Appendix} % Optional: Adds Appendix to Table of Contents
+\subsection{SQL Scripts}
+\begin{verbatim}
+-- 1. The food category 
+CREATE TABLE Category (
+    category_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+
+-- 2. The Location info
+CREATE TABLE Location (
+    location_id INTEGER PRIMARY KEY,
+    city TEXT NOT NULL,
+    district TEXT NOT NULL,
+    UNIQUE(city, district)
+);
+
+-- 3. User table
+CREATE TABLE User(
+    user_id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+
+    -- reliability meta-data
+    review_count INTEGER NOT NULL DEFAULT 0,
+    -- reliability_score 0.00 ~ 1.00
+    reliability_score REAL NOT NULL DEFAULT .5,
+    -- biased reviews counting
+    bias_count INTEGER NOT NULL DEFAULT 0,
+
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now'))
+);
+
+-- 4. Restaurant info table 
+CREATE TABLE Restaurant(
+    restaurant_id INTEGER PRIMARY KEY,
+    -- Foreign key, owner of this restaurant entry
+    owner INTEGER NOT NULL,
+
+    -- info field
+    restaurant_name TEXT NOT NULL,
+    restaurant_address TEXT NOT NULL,
+    -- Foreign keys
+    category_ref_id INTEGER NOT NULL,
+    location_ref_id  INTEGER NOT NULL,
+
+    -- time meta-data field
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+    last_modified_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+    last_accessed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+
+    -- connecting foreign key
+    FOREIGN KEY(category_ref_id) REFERENCES Category(category_id),
+    FOREIGN KEY(location_ref_id) REFERENCES Location(location_id),
+    FOREIGN KEY(owner) REFERENCES User(user_id)
+);
+
+-- 5. Caching table, crucial for read performance
+CREATE TABLE Cache_Metadata(
+    -- Foreign + primary key
+    restaurant_id INTEGER PRIMARY KEY,
+
+    location_ref_id INTEGER NOT NULL,
+    category_ref_id INTEGER NOT NULL,
+
+    -- Core cache fields
+    -- Weighted rating score (adjusted based on user's reliability)
+    weighted_rating REAL NOT NULL,
+    -- Total count of weighted reviews
+    total_weighted_reviews INTEGER NOT NULL,
+    -- Cache score determines inclusion in the cache table (based on access frequency/recency)
+    cache_score INTEGER NOT NULL,
+    last_cache_updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+
+    FOREIGN KEY(restaurant_id) REFERENCES Restaurant(restaurant_id),
+    FOREIGN KEY(location_ref_id) REFERENCES Location(location_id),
+    FOREIGN KEY(category_ref_id) REFERENCES Category(category_id)
+);
+
+-- 6. Review table, stores actual review data
+CREATE TABLE Review(
+    review_id INTEGER PRIMARY KEY,
+
+    restaurant_ref_id INTEGER NOT NULL,
+    user_ref_id INTEGER NOT NULL,
+
+    rating REAL NOT NULL,
+    review_content TEXT NOT NULL,
+
+    -- Reliability system: reliability weight attribute
+    reliability_weight REAL NOT NULL DEFAULT .5,
+
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+
+    FOREIGN KEY(restaurant_ref_id) REFERENCES Restaurant(restaurant_id),
+    FOREIGN KEY(user_ref_id) REFERENCES User(user_id)
+);
+
+-- 7. Table requesting reliability score changes for a review. Calculation is asynchronous as it takes time after each rating.
+CREATE TABLE Review_Analysis_Log (
+    analysis_log_id INTEGER PRIMARY KEY,
+
+    review_ref_id INTEGER NOT NULL,
+    user_ref_id INTEGER NOT NULL,
+
+    -- Degree of change (+/-) in reliability score
+    change_reliability_score REAL NOT NULL,
+    new_bias_count INTEGER NOT NULL DEFAULT 0,
+
+    log_updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+    -- Status if it entered the buffer
+    status TEXT NOT NULL DEFAULT 'PENDING',
+
+
+    FOREIGN KEY(review_ref_id) REFERENCES Review(review_id),
+    FOREIGN KEY(user_ref_id) REFERENCES User(user_id)
+);
+
+-- 8. Buffer: all ratings and reviews are first stored here. Applied to other tables when a certain batch size is reached.
+CREATE TABLE Buffer_Log(
+    log_id INTEGER PRIMARY KEY,
+    transaction_type TEXT NOT NULL, -- INSERT, UPDATE, DELETE
+    target_table TEXT NOT NULL, -- Attribute determining which table to apply the transaction to (e.g., reliability changes apply to the User table)
+
+    payload TEXT NOT NULL, -- Payload is JSON, but stored as TEXT (as per SQLite/Splite specification)
+    target_record_id INTEGER, -- ID of the record to be applied based on transaction_type
+
+    log_updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+    is_committed INTEGER NOT NULL DEFAULT 0 -- Stored as INTEGER as SQLite/Splite lacks a native boolean type
+);
+
+-- User: Index for reliability score based searching and ranking
+CREATE INDEX idx_user_reliability_score ON User (reliability_score DESC);
+
+-- Restaurant: Composite index for location and category-based searching
+CREATE INDEX idx_restaurant_location_category ON Restaurant (Location_Ref_ID, Category_Ref_ID);
+
+-- Buffer_Log: Index for worker to efficiently retrieve uncommitted logs
+CREATE INDEX idx_buffer_pending ON Buffer_Log (is_committed, log_updated_at);
+
+\end{verbatim}
+
+\subsection{Go Proto Code}
+\url{https://github.com/Joseng8908/restaurant_db}
+
+\subsection{Test Images}
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.9\textwidth]{test_buffer.png} 
+  
+\caption{Test Buffer Result Imaget}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.9\textwidth]{test_cache.png} 
+  
+\caption{Test Cache Result Imaget}
+\end{figure}
+
+
+\end{document}
